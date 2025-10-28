@@ -70,16 +70,20 @@ export default function BillDetailScreen() {
   };
 
   const generatePDFContent = (billData: BillWithItems, shopDetails: any) => {
+    // Calculate discount details
+    const discountPercentage = billData.sgst_percentage || 0; // Discount stored in sgst_percentage
+    const discountAmount = billData.sgst_amount || 0; // Discount amount stored in sgst_amount
+    
     const itemsHtml = billData.items
       .map(
         (item) => `
         <tr>
           <td style="border: 1px solid #000; padding: 8px 6px; text-align: center; font-size: 12px; width: 50px;">${item.quantity}</td>
-          <td style="border: 1px solid #000; padding: 8px 10px; font-size: 12px; width: 320px; text-align: left;">${item.medicine_name}</td>
-          <td style="border: 1px solid #000; padding: 8px 6px; text-align: center; font-size: 11px; width: 100px;">${item.price_per_unit.toFixed(0)}/-</td>
-          <td style="border: 1px solid #000; padding: 8px 6px; text-align: center; font-size: 11px; width: 90px;">${item.hsn_code || ''}</td>
-          <td style="border: 1px solid #000; padding: 8px 6px; text-align: center; font-size: 10px; width: 110px;">${item.batch_no || ''}<br>${item.expiry_date || ''}</td>
-          <td style="border: 1px solid #000; padding: 8px 10px; text-align: right; font-size: 12px; font-weight: 600; width: 90px;">${item.total.toFixed(0)}</td>
+          <td style="border: 1px solid #000; padding: 8px 10px; font-size: 12px; width: 350px; text-align: left;">${item.medicine_name}</td>
+          <td style="border: 1px solid #000; padding: 8px 6px; text-align: center; font-size: 11px; width: 105px;">${item.price_per_unit.toFixed(0)}/-</td>
+          <td style="border: 1px solid #000; padding: 8px 6px; text-align: center; font-size: 11px; width: 95px;">${item.hsn_code || ''}</td>
+          <td style="border: 1px solid #000; padding: 8px 6px; text-align: center; font-size: 10px; width: 115px;">${item.batch_no || ''}<br>${item.expiry_date || ''}</td>
+          <td style="border: 1px solid #000; padding: 8px 10px; text-align: right; font-size: 12px; font-weight: 600; width: 95px;">${item.total.toFixed(0)}</td>
         </tr>
       `
       )
@@ -90,11 +94,11 @@ export default function BillDetailScreen() {
     const emptyRows = Array(emptyRowsCount).fill(0).map(() => `
       <tr style="height: 36px;">
         <td style="border: 1px solid #000; padding: 8px 6px; width: 50px;">&nbsp;</td>
-        <td style="border: 1px solid #000; padding: 8px 10px; width: 320px;">&nbsp;</td>
-        <td style="border: 1px solid #000; padding: 8px 6px; width: 100px;">&nbsp;</td>
-        <td style="border: 1px solid #000; padding: 8px 6px; width: 90px;">&nbsp;</td>
-        <td style="border: 1px solid #000; padding: 8px 6px; width: 110px;">&nbsp;</td>
-        <td style="border: 1px solid #000; padding: 8px 10px; width: 90px;">&nbsp;</td>
+        <td style="border: 1px solid #000; padding: 8px 10px; width: 350px;">&nbsp;</td>
+        <td style="border: 1px solid #000; padding: 8px 6px; width: 105px;">&nbsp;</td>
+        <td style="border: 1px solid #000; padding: 8px 6px; width: 95px;">&nbsp;</td>
+        <td style="border: 1px solid #000; padding: 8px 6px; width: 115px;">&nbsp;</td>
+        <td style="border: 1px solid #000; padding: 8px 10px; width: 95px;">&nbsp;</td>
       </tr>
     `).join('');
 
@@ -110,7 +114,7 @@ export default function BillDetailScreen() {
           <style>
             @page {
               size: A4;
-              margin: 15mm;
+              margin: 8mm;
             }
             * {
               margin: 0;
@@ -126,7 +130,7 @@ export default function BillDetailScreen() {
             }
             .invoice-container {
               width: 100%;
-              max-width: 210mm;
+              max-width: 100%;
               margin: 0 auto;
               border: 2.5px solid #000;
               background: white;
@@ -293,14 +297,42 @@ export default function BillDetailScreen() {
               border-top: 2px solid #000;
               padding: 12px 16px;
               position: relative;
-              min-height: 80px;
+              min-height: 100px;
             }
             .total-words-row {
               font-size: 10.5px;
-              margin-bottom: 6px;
+              margin-bottom: 8px;
             }
             .total-words-row strong {
               font-weight: 700;
+            }
+            
+            /* Totals Breakdown */
+            .totals-breakdown {
+              margin-top: 8px;
+              margin-bottom: 8px;
+            }
+            .breakdown-row {
+              display: flex;
+              justify-content: flex-start;
+              align-items: center;
+              gap: 16px;
+              font-size: 11px;
+              margin-bottom: 4px;
+            }
+            .breakdown-label {
+              font-weight: 600;
+              min-width: 150px;
+            }
+            .breakdown-value {
+              font-weight: 700;
+              font-size: 12px;
+            }
+            .discount-row {
+              color: #dc2626;
+            }
+            .discount-row .breakdown-value {
+              color: #dc2626;
             }
             
             /* Grand Total Box - Bottom Right */
@@ -441,11 +473,11 @@ export default function BillDetailScreen() {
                 <thead>
                   <tr>
                     <th style="width: 50px;">Qty</th>
-                    <th style="width: 320px;">PARTICULARS</th>
-                    <th style="width: 100px;">MRP<br>Per Unit</th>
-                    <th style="width: 90px;">HSN CODE</th>
-                    <th style="width: 110px;">Batch No.<br>Exp.</th>
-                    <th style="width: 90px;">Amount<br>P.</th>
+                    <th style="width: 350px;">PARTICULARS</th>
+                    <th style="width: 105px;">MRP<br>Per Unit</th>
+                    <th style="width: 95px;">HSN CODE</th>
+                    <th style="width: 115px;">Batch No.<br>Exp.</th>
+                    <th style="width: 95px;">Amount<br>P.</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -460,6 +492,17 @@ export default function BillDetailScreen() {
               <div class="total-words-row">
                 <strong>Total Invoice Value (in Words) :</strong>
                 <span>${totalInWords}</span>
+              </div>
+              
+              <div class="totals-breakdown">
+                <div class="breakdown-row">
+                  <span class="breakdown-label">Subtotal:</span>
+                  <span class="breakdown-value">₹ ${billData.subtotal.toFixed(0)}</span>
+                </div>
+                <div class="breakdown-row discount-row">
+                  <span class="breakdown-label">Discount (${discountPercentage}%):</span>
+                  <span class="breakdown-value">- ₹ ${discountAmount.toFixed(0)}</span>
+                </div>
               </div>
               
               <div class="grand-total-box">

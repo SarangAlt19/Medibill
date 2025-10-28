@@ -14,6 +14,22 @@ export function BillItemRow({ item, index, onUpdate, onDelete }: BillItemRowProp
   const { colors } = useTheme();
   const isLowConfidence = item.ocr_confidence && item.ocr_confidence < 0.8;
 
+  const handleExpiryChange = (text: string) => {
+    // Remove all non-digit characters
+    const cleaned = text.replace(/\D/g, '');
+    
+    // Format as MM/YY
+    let formatted = cleaned;
+    if (cleaned.length >= 2) {
+      formatted = cleaned.slice(0, 2) + '/' + cleaned.slice(2, 4);
+    }
+    
+    // Limit to MM/YY format (5 characters including the slash)
+    if (formatted.length <= 5) {
+      onUpdate(item.id, 'expiry_date', formatted);
+    }
+  };
+
   return (
     <View style={[styles.container, { backgroundColor: colors.cardBackground, borderColor: colors.border }, isLowConfidence ? styles.lowConfidenceContainer : null]}>
       <View style={styles.header}>
@@ -91,8 +107,10 @@ export function BillItemRow({ item, index, onUpdate, onDelete }: BillItemRowProp
             style={[styles.smallInput, { backgroundColor: colors.inputBackground, borderColor: colors.border, color: colors.text }]}
             placeholder="MM/YY"
             placeholderTextColor={colors.textTertiary}
+            keyboardType="numeric"
+            maxLength={5}
             value={item.expiry_date || ''}
-            onChangeText={(text) => onUpdate(item.id, 'expiry_date', text)}
+            onChangeText={handleExpiryChange}
           />
         </View>
       </View>

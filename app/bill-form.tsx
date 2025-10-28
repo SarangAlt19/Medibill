@@ -38,11 +38,13 @@ export default function BillFormScreen() {
       quantity: '',
       price_per_unit: '',
       total: 0,
+      hsn_code: '3004',
     },
   ]);
   const [discountPercentage, setDiscountPercentage] = useState('10');
   const [loading, setLoading] = useState(false);
   const [showCustomerSection, setShowCustomerSection] = useState(false);
+  const [defaultHsnCode, setDefaultHsnCode] = useState('3004');
 
   useEffect(() => {
     if (isEditMode && billId) {
@@ -74,8 +76,24 @@ export default function BillFormScreen() {
   const loadDefaults = async () => {
     const shopDetails = await getShopDetails();
     if (shopDetails) {
-      // Discount defaults to 10%
-      setDiscountPercentage('10');
+      // Load default discount and HSN code from shop settings
+      const defaultDiscount = shopDetails.default_discount?.toString() || '10';
+      const defaultHsn = shopDetails.default_hsn_code || '3004';
+      
+      setDiscountPercentage(defaultDiscount);
+      setDefaultHsnCode(defaultHsn);
+      
+      // Update initial item with default HSN code
+      setItems([
+        {
+          id: Date.now().toString(),
+          medicine_name: '',
+          quantity: '',
+          price_per_unit: '',
+          total: 0,
+          hsn_code: defaultHsn,
+        },
+      ]);
     }
   };
 
@@ -112,6 +130,14 @@ export default function BillFormScreen() {
     setLoading(false);
   };
 
+  const handlePhoneChange = (text: string) => {
+    // Only allow digits and limit to 10 characters
+    const cleaned = text.replace(/\D/g, '');
+    if (cleaned.length <= 10) {
+      setCustomerPhone(cleaned);
+    }
+  };
+
   const handleUpdateItem = (id: string, field: keyof BillItemInput, value: string) => {
     setItems((prevItems) =>
       prevItems.map((item) => {
@@ -144,6 +170,7 @@ export default function BillFormScreen() {
         quantity: '',
         price_per_unit: '',
         total: 0,
+        hsn_code: defaultHsnCode,
       },
     ]);
   };
@@ -193,16 +220,20 @@ export default function BillFormScreen() {
   };
 
   const generatePDFContent = (billData: any, shopDetails: any) => {
+    // Calculate discount details
+    const discountPercentage = billData.sgst_percentage || 0; // Discount stored in sgst_percentage
+    const discountAmount = billData.sgst_amount || 0; // Discount amount stored in sgst_amount
+    
     const itemsHtml = billData.items
       .map(
         (item: any) => `
         <tr>
           <td style="border: 1px solid #000; padding: 8px 6px; text-align: center; font-size: 12px; width: 50px;">${item.quantity}</td>
-          <td style="border: 1px solid #000; padding: 8px 10px; font-size: 12px; width: 320px; text-align: left;">${item.medicine_name}</td>
-          <td style="border: 1px solid #000; padding: 8px 6px; text-align: center; font-size: 11px; width: 100px;">${item.price_per_unit.toFixed(0)}/-</td>
-          <td style="border: 1px solid #000; padding: 8px 6px; text-align: center; font-size: 11px; width: 90px;">${item.hsn_code || ''}</td>
-          <td style="border: 1px solid #000; padding: 8px 6px; text-align: center; font-size: 10px; width: 110px;">${item.batch_no || ''}<br>${item.expiry_date || ''}</td>
-          <td style="border: 1px solid #000; padding: 8px 10px; text-align: right; font-size: 12px; font-weight: 600; width: 90px;">${item.total.toFixed(0)}</td>
+          <td style="border: 1px solid #000; padding: 8px 10px; font-size: 12px; width: 350px; text-align: left;">${item.medicine_name}</td>
+          <td style="border: 1px solid #000; padding: 8px 6px; text-align: center; font-size: 11px; width: 105px;">${item.price_per_unit.toFixed(0)}/-</td>
+          <td style="border: 1px solid #000; padding: 8px 6px; text-align: center; font-size: 11px; width: 95px;">${item.hsn_code || ''}</td>
+          <td style="border: 1px solid #000; padding: 8px 6px; text-align: center; font-size: 10px; width: 115px;">${item.batch_no || ''}<br>${item.expiry_date || ''}</td>
+          <td style="border: 1px solid #000; padding: 8px 10px; text-align: right; font-size: 12px; font-weight: 600; width: 95px;">${item.total.toFixed(0)}</td>
         </tr>
       `
       )
@@ -213,11 +244,11 @@ export default function BillFormScreen() {
     const emptyRows = Array(emptyRowsCount).fill(0).map(() => `
       <tr style="height: 36px;">
         <td style="border: 1px solid #000; padding: 8px 6px; width: 50px;">&nbsp;</td>
-        <td style="border: 1px solid #000; padding: 8px 10px; width: 320px;">&nbsp;</td>
-        <td style="border: 1px solid #000; padding: 8px 6px; width: 100px;">&nbsp;</td>
-        <td style="border: 1px solid #000; padding: 8px 6px; width: 90px;">&nbsp;</td>
-        <td style="border: 1px solid #000; padding: 8px 6px; width: 110px;">&nbsp;</td>
-        <td style="border: 1px solid #000; padding: 8px 10px; width: 90px;">&nbsp;</td>
+        <td style="border: 1px solid #000; padding: 8px 10px; width: 350px;">&nbsp;</td>
+        <td style="border: 1px solid #000; padding: 8px 6px; width: 105px;">&nbsp;</td>
+        <td style="border: 1px solid #000; padding: 8px 6px; width: 95px;">&nbsp;</td>
+        <td style="border: 1px solid #000; padding: 8px 6px; width: 115px;">&nbsp;</td>
+        <td style="border: 1px solid #000; padding: 8px 10px; width: 95px;">&nbsp;</td>
       </tr>
     `).join('');
 
@@ -233,7 +264,7 @@ export default function BillFormScreen() {
           <style>
             @page {
               size: A4;
-              margin: 15mm;
+              margin: 2mm;
             }
             * {
               margin: 0;
@@ -249,7 +280,7 @@ export default function BillFormScreen() {
             }
             .invoice-container {
               width: 100%;
-              max-width: 210mm;
+              max-width: 100%;
               margin: 0 auto;
               border: 2.5px solid #000;
               background: white;
@@ -416,14 +447,42 @@ export default function BillFormScreen() {
               border-top: 2px solid #000;
               padding: 12px 16px;
               position: relative;
-              min-height: 80px;
+              min-height: 100px;
             }
             .total-words-row {
               font-size: 10.5px;
-              margin-bottom: 6px;
+              margin-bottom: 8px;
             }
             .total-words-row strong {
               font-weight: 700;
+            }
+            
+            /* Totals Breakdown */
+            .totals-breakdown {
+              margin-top: 8px;
+              margin-bottom: 8px;
+            }
+            .breakdown-row {
+              display: flex;
+              justify-content: flex-start;
+              align-items: center;
+              gap: 16px;
+              font-size: 11px;
+              margin-bottom: 4px;
+            }
+            .breakdown-label {
+              font-weight: 600;
+              min-width: 150px;
+            }
+            .breakdown-value {
+              font-weight: 700;
+              font-size: 12px;
+            }
+            .discount-row {
+              color: #dc2626;
+            }
+            .discount-row .breakdown-value {
+              color: #dc2626;
             }
             
             /* Grand Total Box - Bottom Right */
@@ -564,11 +623,11 @@ export default function BillFormScreen() {
                 <thead>
                   <tr>
                     <th style="width: 50px;">Qty</th>
-                    <th style="width: 320px;">PARTICULARS</th>
-                    <th style="width: 100px;">MRP<br>Per Unit</th>
-                    <th style="width: 90px;">HSN CODE</th>
-                    <th style="width: 110px;">Batch No.<br>Exp.</th>
-                    <th style="width: 90px;">Amount<br>P.</th>
+                    <th style="width: 350px;">PARTICULARS</th>
+                    <th style="width: 105px;">MRP<br>Per Unit</th>
+                    <th style="width: 95px;">HSN CODE</th>
+                    <th style="width: 115px;">Batch No.<br>Exp.</th>
+                    <th style="width: 95px;">Amount<br>P.</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -583,6 +642,17 @@ export default function BillFormScreen() {
               <div class="total-words-row">
                 <strong>Total Invoice Value (in Words) :</strong>
                 <span>${totalInWords}</span>
+              </div>
+              
+              <div class="totals-breakdown">
+                <div class="breakdown-row">
+                  <span class="breakdown-label">Subtotal:</span>
+                  <span class="breakdown-value">₹ ${billData.subtotal.toFixed(0)}</span>
+                </div>
+                <div class="breakdown-row discount-row">
+                  <span class="breakdown-label">Discount (${discountPercentage}%):</span>
+                  <span class="breakdown-value">- ₹ ${discountAmount.toFixed(0)}</span>
+                </div>
               </div>
               
               <div class="grand-total-box">
@@ -767,11 +837,12 @@ export default function BillFormScreen() {
               <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Mobile Number</Text>
               <TextInput
                 style={[styles.textInput, { backgroundColor: colors.cardBackground, borderColor: colors.border, color: colors.text }]}
-                placeholder="Enter mobile number"
+                placeholder="Enter mobile number (10 digits)"
                 placeholderTextColor={colors.textTertiary}
                 keyboardType="phone-pad"
+                maxLength={10}
                 value={customerPhone}
-                onChangeText={setCustomerPhone}
+                onChangeText={handlePhoneChange}
               />
             </View>
             

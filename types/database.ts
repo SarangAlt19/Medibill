@@ -8,8 +8,8 @@ export interface ShopDetails {
   license_number: string;
   bill_number_prefix: string;
   bill_number_counter: number;
-  default_cgst: number;
-  default_sgst: number;
+  default_hsn_code: string;
+  default_discount: number;
   google_vision_api_key: string;
   created_at: string;
   updated_at: string;

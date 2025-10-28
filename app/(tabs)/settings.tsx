@@ -27,8 +27,8 @@ export default function SettingsScreen() {
   const [email, setEmail] = useState('');
   const [licenseNumber, setLicenseNumber] = useState('');
   const [billPrefix, setBillPrefix] = useState('');
-  const [defaultCgst, setDefaultCgst] = useState('');
-  const [defaultSgst, setDefaultSgst] = useState('');
+  const [defaultHsnCode, setDefaultHsnCode] = useState('');
+  const [defaultDiscount, setDefaultDiscount] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [autoDeletePeriod, setAutoDeletePeriod] = useState<'never' | 'daily' | 'weekly' | 'monthly' | 'yearly'>('never');
 
@@ -68,8 +68,8 @@ export default function SettingsScreen() {
       setOriginalShopInfo(shopData);
       
       setBillPrefix(details.bill_number_prefix);
-      setDefaultCgst(details.default_cgst.toString());
-      setDefaultSgst(details.default_sgst.toString());
+      setDefaultHsnCode(details.default_hsn_code || '3004');
+      setDefaultDiscount(details.default_discount?.toString() || '10');
       setApiKey(details.google_vision_api_key || '');
     }
     setLoading(false);
@@ -116,16 +116,15 @@ export default function SettingsScreen() {
       return;
     }
 
-    const cgst = parseFloat(defaultCgst);
-    const sgst = parseFloat(defaultSgst);
+    const discount = parseFloat(defaultDiscount);
 
-    if (isNaN(cgst) || cgst < 0) {
-      Alert.alert('Error', 'Invalid CGST percentage');
+    if (isNaN(discount) || discount < 0 || discount > 100) {
+      Alert.alert('Error', 'Invalid discount percentage (must be between 0-100)');
       return;
     }
 
-    if (isNaN(sgst) || sgst < 0) {
-      Alert.alert('Error', 'Invalid SGST percentage');
+    if (!defaultHsnCode.trim()) {
+      Alert.alert('Error', 'Default HSN code is required');
       return;
     }
 
@@ -139,8 +138,8 @@ export default function SettingsScreen() {
       email: email.trim(),
       license_number: licenseNumber.trim(),
       bill_number_prefix: billPrefix.trim() || 'FM',
-      default_cgst: cgst,
-      default_sgst: sgst,
+      default_hsn_code: defaultHsnCode.trim(),
+      default_discount: discount,
       google_vision_api_key: apiKey.trim(),
     });
 
@@ -339,24 +338,24 @@ export default function SettingsScreen() {
             autoCapitalize="characters"
           />
 
-          <Text style={[styles.label, { color: colors.textSecondary }]}>Default CGST %</Text>
+          <Text style={[styles.label, { color: colors.textSecondary }]}>Default HSN Code</Text>
           <TextInput
             style={[styles.input, { backgroundColor: colors.inputBackground, borderColor: colors.border, color: colors.text }]}
-            placeholder="6"
+            placeholder="3004"
             placeholderTextColor={colors.textTertiary}
             keyboardType="numeric"
-            value={defaultCgst}
-            onChangeText={setDefaultCgst}
+            value={defaultHsnCode}
+            onChangeText={setDefaultHsnCode}
           />
 
-          <Text style={[styles.label, { color: colors.textSecondary }]}>Default SGST %</Text>
+          <Text style={[styles.label, { color: colors.textSecondary }]}>Default Discount %</Text>
           <TextInput
             style={[styles.input, { backgroundColor: colors.inputBackground, borderColor: colors.border, color: colors.text }]}
-            placeholder="6"
+            placeholder="10"
             placeholderTextColor={colors.textTertiary}
             keyboardType="numeric"
-            value={defaultSgst}
-            onChangeText={setDefaultSgst}
+            value={defaultDiscount}
+            onChangeText={setDefaultDiscount}
           />
         </View>
 
