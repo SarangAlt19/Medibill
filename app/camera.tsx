@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -6,45 +6,215 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
-  Platform,
 } from 'react-native';
-import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
+import { useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
-import { X, Zap, ZapOff, Camera as CameraIcon } from 'lucide-react-native';
-import { extractTextFromImage, parseOCRText } from '@/utils/ocr';
+import { Camera as CameraIcon } from 'lucide-react-native';
+import { extractBillItemsFromImage, extractTextFromImage, parseOCRText } from '@/utils/ocr';
+import { extractBillData } from '@/utils/billExtraction';
+import { Platform } from 'react-native';
+
+// API endpoint configuration
+const LAPTOP_IP = '192.168.0.6';
+const SERVER_PORT = 3000;
+
+const getApiBaseUrl = () => {
+  if (__DEV__) {
+    if (Platform.OS === 'android') {
+      return `http://${LAPTOP_IP}:${SERVER_PORT}`;
+    } else {
+      return `http://${LAPTOP_IP}:${SERVER_PORT}`;
+    }
+  }
+  return `http://${LAPTOP_IP}:${SERVER_PORT}`;
+};
+
+const API_BASE_URL = getApiBaseUrl();
+const ANALYZE_BILL_ENDPOINT = `${API_BASE_URL}/analyze-bill`;
+
+interface Prediction {
+  class: string;
+  x: number;
+  y: number;
+  width?: number;
+  height?: number;
+  confidence?: number;
+}
+
+interface AnalyzeBillResponse {
+  success: boolean;
+  predictions?: Prediction[];
+  image?: {
+    width?: number;
+    height?: number;
+  };
+  error?: string;
+}
+
+// Upload image and extract bill data using row-captain algorithm
+async function uploadAndExtractBill(photo: {
+  uri: string;
+  fileName?: string;
+  type?: string;
+}): Promise<ReturnType<typeof extractBillData>> {
+  console.log('==== uploadAndExtractBill START ====');
+  console.log('Input photo:', { uri: photo.uri, fileName: photo.fileName, type: photo.type });
+  try {
+    // Extract filename if missing
+    let fileName = photo.fileName;
+    if (!fileName && photo.uri) {
+      const uriParts = photo.uri.split('/');
+      fileName = uriParts[uriParts.length - 1] || 'image.jpg';
+      if (!fileName.includes('.')) {
+        const mimeType = photo.type || 'image/jpeg';
+        const ext = mimeType.split('/')[1] || 'jpg';
+        fileName = `${fileName}.${ext}`;
+      }
+    }
+
+    // Set correct MIME type
+    let mimeType = photo.type || 'image/jpeg';
+    if (!mimeType || mimeType === 'image') {
+      const ext = fileName?.split('.').pop()?.toLowerCase();
+      const mimeMap: { [key: string]: string } = {
+        jpg: 'image/jpeg',
+        jpeg: 'image/jpeg',
+        png: 'image/png',
+        gif: 'image/gif',
+        webp: 'image/webp',
+      };
+      mimeType = mimeMap[ext || 'jpg'] || 'image/jpeg';
+    }
+
+    console.log('Uploading image to:', ANALYZE_BILL_ENDPOINT);
+
+    // Create FormData
+    const formData = new FormData();
+    formData.append('image', {
+      uri: photo.uri,
+      type: mimeType,
+      name: fileName,
+    } as any);
+
+    // Send request
+    console.log('Sending POST request...');
+    const response = await fetch(ANALYZE_BILL_ENDPOINT, {
+      method: 'POST',
+      body: formData,
+    });
+
+    console.log('Response status:', response.status, response.statusText);
+    console.log('Response ok:', response.ok);
+    
+    const responseText = await response.text();
+    console.log('Raw response text (first 500 chars):', responseText.substring(0, 500));
+    
+    let data: AnalyzeBillResponse;
+    
+    try {
+      data = JSON.parse(responseText);
+      console.log('Parsed response data:', data);
+    } catch (parseError) {
+      console.error('Failed to parse JSON response:', parseError);
+      console.error('Full response text:', responseText);
+      throw new Error(`Invalid JSON response from server: ${responseText.substring(0, 200)}`);
+    }
+
+    console.log('Checking response validity...');
+    console.log('response.ok:', response.ok);
+    console.log('data.success:', data.success);
+    
+    if (!response.ok || !data.success) {
+      console.error('Response not OK or success=false');
+      throw new Error(data.error || `HTTP error! status: ${response.status}`);
+    }
+
+    if (!data.predictions || data.predictions.length === 0) {
+      console.log('No predictions received from API');
+      return {
+        medicines: [],
+        metadata: {
+          customerName: null,
+          customerPhone: null,
+          customerAddress: null,
+          billNumber: null,
+          billDate: null,
+          doctorName: null,
+        },
+        totalMedicines: 0,
+      };
+    }
+
+    console.log('\n==== API RESPONSE ====');
+    console.log('Total predictions received:', data.predictions.length);
+    console.log('Prediction classes:', data.predictions.map((p: any) => p.class));
+    console.log('Full predictions:', JSON.stringify(data.predictions, null, 2));
+
+    // Extract bill data using row-captain algorithm
+    console.log('\n==== CALLING extractBillData ====');
+    let extractedData;
+    try {
+      extractedData = extractBillData(data.predictions);
+      console.log('\n==== EXTRACTION COMPLETE ====');
+      console.log('Total medicines extracted:', extractedData.totalMedicines);
+      console.log('Medicine rows:', JSON.stringify(extractedData.medicines, null, 2));
+      console.log('Metadata:', extractedData.metadata);
+    } catch (extractError) {
+      console.error('\n==== EXTRACTION FAILED ====');
+      console.error('Extract error:', extractError);
+      console.error('Extract error stack:', (extractError as any)?.stack);
+      throw new Error(`Failed to extract bill data: ${extractError instanceof Error ? extractError.message : 'Unknown error'}`);
+    }
+    console.log('==== uploadAndExtractBill END ====\n');
+
+    return extractedData;
+  } catch (error) {
+    console.error('Error uploading image:', error);
+    
+    if (error instanceof TypeError && error.message.includes('Network request failed')) {
+      const platformHint = Platform.OS === 'android' 
+        ? '\n\nFor Android emulator, make sure:\n- Server is running on port 3000\n- Using 10.0.2.2 instead of localhost\n\nFor physical device, use your computer\'s IP address instead of localhost.'
+        : '\n\nMake sure:\n- Server is running on port 3000\n- For physical device, use your computer\'s IP address instead of localhost.';
+      
+      throw new Error(`Network request failed. Cannot connect to server at ${ANALYZE_BILL_ENDPOINT}${platformHint}`);
+    }
+    
+    throw error;
+  }
+}
 
 export default function CameraScreen() {
   const router = useRouter();
-  const cameraRef = useRef<CameraView>(null);
-  const [facing] = useState<CameraType>('back');
-  const [flashEnabled, setFlashEnabled] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
   const [processing, setProcessing] = useState(false);
-  const [cameraReady, setCameraReady] = useState(false);
-  const [isMounted, setIsMounted] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
-    setIsMounted(true);
-    return () => setIsMounted(false);
-  }, []);
+    // Auto-launch camera when component mounts
+    if (permission?.granted && !processing) {
+      handleCapture();
+    }
+  }, [permission?.granted]);
 
-  // Define ALL hooks before any conditional returns
   const handleCapture = useCallback(async () => {
-    // Use ImagePicker to launch camera - more reliable than CameraView.takePictureAsync
     try {
       console.log('Launching camera with ImagePicker...');
+      setProcessing(true);
       
       const result = await ImagePicker.launchCameraAsync({
         mediaTypes: 'images',
         allowsEditing: false,
         quality: 0.8,
+        cameraType: ImagePicker.CameraType.back,
       });
 
       console.log('Camera result:', { canceled: result.canceled, assets: result.assets?.length });
 
       if (result.canceled || !result.assets || result.assets.length === 0) {
         console.log('User canceled or no image');
+        setProcessing(false);
+        router.back();
         return;
       }
 
@@ -55,47 +225,91 @@ export default function CameraScreen() {
         throw new Error('No photo URI received');
       }
 
-      setProcessing(true);
+      console.log('==== STARTING UPLOAD PROCESS ====');
+      console.log('Photo URI:', photo.uri);
+      setUploading(true);
 
-      console.log('Starting OCR...');
+      try {
+        // Upload and extract bill data using row-captain algorithm
+        console.log('Calling uploadAndExtractBill...');
+        const extractedData = await uploadAndExtractBill({
+          uri: photo.uri,
+          fileName: photo.fileName || undefined,
+          type: photo.type || 'image/jpeg',
+        });
 
-      // Use Tesseract OCR
-      const extractedText = await extractTextFromImage(photo.uri);
+        console.log('==== UPLOAD COMPLETE ====');
+        console.log('Total medicines extracted:', extractedData.medicines.length);
+        console.log('Medicine details:', extractedData.medicines);
+        
+        setUploading(false);
+        
+        // Show extraction count
+        const extractionSummary = `Found ${extractedData.medicines.length} medicine row(s)`;
+        console.log(extractionSummary);
 
-      if (!extractedText || extractedText.trim().length === 0) {
-        throw new Error('No text extracted from image');
-      }
+        // Convert to OCR results format for compatibility
+        console.log('Converting to OCR results format...');
+        const ocrResults = extractedData.medicines.map((row, index) => ({
+          medicine_name: row.medName || `Item ${index + 1}`,
+          quantity: row.quantity || '1',
+          price_per_unit: row.amount || '0',
+          hsn_code: row.hsnCode || '',
+          batch_no: row.batchExp || '',
+          expiry_date: '',
+          confidence: 0.8,
+        }));
 
-      console.log('Extracted text length:', extractedText.length);
+        console.log('OCR Results converted:', ocrResults.length, 'items');
+        console.log('OCR Results:', ocrResults);
 
-      const ocrResults = parseOCRText(extractedText);
-
-      if (ocrResults.length === 0) {
+        if (ocrResults.length === 0) {
+        // No items detected - offer manual entry
         Alert.alert(
-          'No Items Found',
-          'Could not extract items from the image. Please enter details manually.',
+          'No Items Detected',
+          'The image quality may be too low or the bill format is unclear. Would you like to enter items manually?',
           [
             {
-              text: 'OK',
-              onPress: () => router.replace('/bill-form'),
+              text: 'Try Again',
+              onPress: () => {
+                setProcessing(false);
+                // Re-launch camera
+                setTimeout(() => handleCapture(), 100);
+              },
+            },
+            {
+              text: 'Manual Entry',
+              onPress: () => {
+                setProcessing(false);
+                router.replace('/bill-form');
+              },
             },
           ]
         );
-        setProcessing(false);
         return;
       }
 
-      router.replace({
-        pathname: '/ocr-review',
-        params: {
-          ocrResults: JSON.stringify(ocrResults),
-        },
-      });
+        // Pass both OCR results and metadata directly to bill form
+        router.replace({
+          pathname: '/bill-form',
+          params: {
+            ocrResults: JSON.stringify(ocrResults),
+            billMetadata: JSON.stringify(extractedData.metadata),
+            totalMedicines: extractedData.totalMedicines.toString(),
+          },
+        });
+      } catch (uploadError) {
+        setUploading(false);
+        throw uploadError;
+      }
     } catch (error) {
       console.error('OCR Error:', error);
       console.error('Error stack:', (error as any)?.stack);
       
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      
+      setUploading(false);
+      setProcessing(false);
       
       Alert.alert(
         'Capture Failed',
@@ -103,7 +317,9 @@ export default function CameraScreen() {
         [
           {
             text: 'Try Again',
-            onPress: () => setProcessing(false),
+            onPress: () => {
+              // State already reset above
+            },
           },
           {
             text: 'Enter Manually',
@@ -111,29 +327,14 @@ export default function CameraScreen() {
           },
         ]
       );
-      setProcessing(false);
     }
   }, [router]);
 
-  const handleCameraReady = useCallback(() => {
-    console.log('Camera onReady callback fired');
-    
-    // Increased ready delay to 2 seconds for Android to ensure camera is truly ready
-    const delay = Platform.OS === 'android' ? 2000 : 800;
-    
-    setTimeout(() => {
-      if (isMounted) {
-        setCameraReady(true);
-        console.log('Camera ready state set to true');
-      }
-    }, delay);
-  }, [isMounted]);
-
-  // Now the conditional returns come AFTER all hooks
   if (!permission) {
     return (
-      <View style={styles.container}>
+      <View style={styles.permissionContainer}>
         <ActivityIndicator size="large" color="#2563eb" />
+        <Text style={styles.permissionText}>Loading camera...</Text>
       </View>
     );
   }
@@ -155,74 +356,32 @@ export default function CameraScreen() {
     );
   }
 
-  if (processing) {
-    return (
-      <View style={styles.processingContainer}>
-        <ActivityIndicator size="large" color="#2563eb" />
-        <Text style={styles.processingText}>Processing image...</Text>
-        <Text style={styles.processingSubtext}>
-          Extracting text using Google Vision OCR
-        </Text>
-      </View>
-    );
-  }
-
   return (
-    <View style={styles.container}>
-      <CameraView
-        key="main-camera"
-        ref={cameraRef}
-        style={styles.camera}
-        facing={facing}
-        enableTorch={flashEnabled}
-        onCameraReady={handleCameraReady}
-        onMountError={(error: any) => {
-          console.error('Camera mount error:', error);
-          Alert.alert('Camera Error', 'Failed to initialize camera. Please restart the app.');
-        }}
-      />
-      
-      <View style={styles.topBar}>
-        <TouchableOpacity
-          style={styles.topButton}
-          onPress={() => router.back()}>
-          <X size={32} color="#ffffff" strokeWidth={2} />
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.topButton}
-          onPress={() => setFlashEnabled(!flashEnabled)}>
-          {flashEnabled ? (
-            <Zap size={32} color="#fbbf24" strokeWidth={2} />
-          ) : (
-            <ZapOff size={32} color="#ffffff" strokeWidth={2} />
-          )}
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.overlay}>
-        <View style={styles.guideline} />
-        <Text style={styles.guideText}>Place bill flat within frame</Text>
-        {!cameraReady && (
-          <Text style={styles.loadingText}>Initializing camera...</Text>
-        )}
-      </View>
-
-      <View style={styles.bottomBar}>
-        <TouchableOpacity
-          style={[
-            styles.captureButton,
-            !cameraReady && styles.captureButtonDisabled
-          ]}
-          onPress={handleCapture}
-          disabled={!cameraReady || processing}>
-          <View style={[
-            styles.captureButtonInner,
-            !cameraReady && styles.captureButtonInnerDisabled
-          ]}>
-            <CameraIcon size={36} color="#ffffff" strokeWidth={2} />
-          </View>
-        </TouchableOpacity>
-      </View>
+    <View style={styles.processingContainer}>
+      <ActivityIndicator size="large" color="#2563eb" />
+      <Text style={styles.processingText}>
+        {uploading 
+          ? 'Uploading & analyzing...' 
+          : processing 
+          ? 'Processing image...' 
+          : 'Opening camera...'}
+      </Text>
+      <Text style={styles.processingSubtext}>
+        {uploading 
+          ? 'Using row-captain algorithm to extract medicines' 
+          : processing 
+          ? 'Extracting items using AI' 
+          : 'Please wait'}
+      </Text>
+      <TouchableOpacity 
+        style={styles.cancelButton} 
+        onPress={() => {
+          setProcessing(false);
+          setUploading(false);
+          router.back();
+        }}>
+        <Text style={styles.cancelButtonText}>Cancel</Text>
+      </TouchableOpacity>
     </View>
   );
 }

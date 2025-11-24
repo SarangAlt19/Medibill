@@ -10,12 +10,12 @@ import {
   Alert,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { ArrowLeft, Plus } from 'lucide-react-native';
+import { ArrowLeft, Plus, User, Stethoscope, AlertCircle, CheckCircle } from 'lucide-react-native';
 import { BillItemRow } from '@/components/BillItemRow';
 import { BillItemInput, OCRResult } from '@/types/database';
 import { getShopDetails } from '@/services/shopService';
 import { createBill, getBillById, updateBill } from '@/services/billService';
-import { calculateItemTotal, formatCurrency } from '@/utils/calculations';
+import { calculateItemTotal, formatCurrency, calculateSubtotal } from '@/utils/calculations';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { Paths, File } from 'expo-file-system';
@@ -45,6 +45,8 @@ export default function BillFormScreen() {
   const [loading, setLoading] = useState(false);
   const [showCustomerSection, setShowCustomerSection] = useState(false);
   const [defaultHsnCode, setDefaultHsnCode] = useState('3004');
+  const [doctorName, setDoctorName] = useState('');
+  const [isFromOCR, setIsFromOCR] = useState(false);
 
   useEffect(() => {
     if (isEditMode && billId) {
@@ -67,11 +69,31 @@ export default function BillFormScreen() {
           ocr_confidence: result.confidence,
         }));
         setItems(newItems);
+        setIsFromOCR(true);
       } catch (error) {
         console.error('Error parsing OCR results:', error);
       }
     }
-  }, [params.ocrResults]);
+
+    // Load bill metadata if available
+    if (params.billMetadata) {
+      try {
+        const metadata = JSON.parse(params.billMetadata as string);
+        if (metadata.customerName) {
+          setCustomerName(metadata.customerName);
+          setShowCustomerSection(true);
+        }
+        if (metadata.customerPhone) setCustomerPhone(metadata.customerPhone);
+        if (metadata.doctorName) {
+          setDoctorName(metadata.doctorName);
+          setShowCustomerSection(true);
+        }
+        // Note: bill number and date are auto-generated
+      } catch (error) {
+        console.error('Error parsing bill metadata:', error);
+      }
+    }
+  }, [params.ocrResults, params.billMetadata]);
 
   const loadDefaults = async () => {
     const shopDetails = await getShopDetails();
@@ -177,7 +199,8 @@ export default function BillFormScreen() {
 
   const calculateTotals = () => {
     const subtotal = items.reduce((sum, item) => sum + item.total, 0);
-    const discountAmount = Math.round(subtotal * parseFloat(discountPercentage || '0')) / 100;
+    const discountPercent = parseFloat(discountPercentage || '0');
+    const discountAmount = Math.ceil((subtotal * discountPercent) / 100);
     const grandTotal = Math.round((subtotal - discountAmount) * 100) / 100;
 
     return { subtotal, discountAmount, grandTotal };
@@ -699,7 +722,7 @@ export default function BillFormScreen() {
       const formData = {
         customer_name: customerName,
         customer_phone: customerPhone,
-        customer_address: customerAddress,
+        customer_address: doctorName, // Store doctor name in address field
         items: validItems,
         cgst_percentage: 0, // Store discount as CGST for backward compatibility
         sgst_percentage: discount, // Store discount in SGST field
@@ -823,10 +846,13 @@ export default function BillFormScreen() {
         {showCustomerSection && (
           <View style={styles.section}>
             <View style={styles.fieldContainer}>
-              <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Patient Name</Text>
+              <View style={styles.fieldLabelRow}>
+                <User size={18} color={colors.textSecondary} />
+                <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Customer Name</Text>
+              </View>
               <TextInput
                 style={[styles.textInput, { backgroundColor: colors.cardBackground, borderColor: colors.border, color: colors.text }]}
-                placeholder="Enter patient name"
+                placeholder="Enter customer name"
                 placeholderTextColor={colors.textTertiary}
                 value={customerName}
                 onChangeText={setCustomerName}
@@ -834,39 +860,55 @@ export default function BillFormScreen() {
             </View>
             
             <View style={styles.fieldContainer}>
-              <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Mobile Number</Text>
+              <View style={styles.fieldLabelRow}>
+                <Stethoscope size={18} color={colors.textSecondary} />
+                <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Doctor / Hospital / Clinic</Text>
+              </View>
               <TextInput
                 style={[styles.textInput, { backgroundColor: colors.cardBackground, borderColor: colors.border, color: colors.text }]}
-                placeholder="Enter mobile number (10 digits)"
+                placeholder="Enter doctor/hospital/clinic name"
                 placeholderTextColor={colors.textTertiary}
-                keyboardType="phone-pad"
-                maxLength={10}
-                value={customerPhone}
-                onChangeText={handlePhoneChange}
-              />
-            </View>
-            
-            <View style={styles.fieldContainer}>
-              <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Prescribed by Dr.</Text>
-              <TextInput
-                style={[styles.textInput, { backgroundColor: colors.cardBackground, borderColor: colors.border, color: colors.text }]}
-                placeholder="Enter doctor's name (e.g., Dr. Sharma, MD)"
-                placeholderTextColor={colors.textTertiary}
-                value={customerAddress}
-                onChangeText={setCustomerAddress}
+                value={doctorName}
+                onChangeText={setDoctorName}
               />
             </View>
             
             <View style={[styles.infoBox, { backgroundColor: colors.primaryLight, borderColor: colors.primary }]}>
               <Text style={[styles.infoText, { color: colors.primary }]}>
-                💡 These details will appear on the printed bill
+                💡 These details are optional and will appear on the printed bill
               </Text>
             </View>
           </View>
         )}
 
+        {isFromOCR && (
+          <View style={[styles.extractionInfoBanner, { backgroundColor: '#dbeafe', borderColor: '#3b82f6' }]}>
+            <CheckCircle size={20} color="#1e40af" />
+            <Text style={[styles.extractionInfoText, { color: '#1e40af' }]}>
+              Successfully extracted {items.length} medicine item(s) from bill image
+            </Text>
+          </View>
+        )}
+        
+        {isFromOCR && items.some(item => item.ocr_confidence && item.ocr_confidence < 0.8) && (
+          <View style={[styles.warningBanner, { backgroundColor: '#fef3c7', borderColor: '#f59e0b' }]}>
+            <AlertCircle size={20} color="#92400e" />
+            <Text style={styles.warningText}>
+              {items.filter(item => item.ocr_confidence && item.ocr_confidence < 0.8).length} item(s) highlighted in yellow may need correction
+            </Text>
+          </View>
+        )}
+
         <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Items</Text>
+          <View style={styles.sectionHeader}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Medicines</Text>
+            {isFromOCR && (
+              <View style={styles.extractedBadge}>
+                <CheckCircle size={16} color="#16a34a" />
+                <Text style={styles.extractedBadgeText}>Extracted ({items.length})</Text>
+              </View>
+            )}
+          </View>
 
           {items.map((item, index) => (
             <BillItemRow
@@ -901,17 +943,22 @@ export default function BillFormScreen() {
 
         <View style={[styles.totalsSection, { backgroundColor: colors.cardBackground }]}>
           <View style={styles.totalRow}>
-            <Text style={[styles.totalLabel, { color: colors.textTertiary }]}>Subtotal</Text>
+            <Text style={[styles.totalLabel, { color: colors.textTertiary }]}>Total Amount</Text>
             <Text style={[styles.totalValue, { color: colors.textSecondary }]}>{formatCurrency(totals.subtotal)}</Text>
           </View>
           <View style={styles.totalRow}>
             <Text style={[styles.totalLabel, { color: colors.textTertiary }]}>Discount ({discountPercentage}%)</Text>
-            <Text style={[styles.totalValue, { color: colors.error }]}>-{formatCurrency(totals.discountAmount)}</Text>
+            <Text style={[styles.totalValue, { color: colors.error }]}>-₹{totals.discountAmount}</Text>
           </View>
           <View style={[styles.totalRow, styles.grandTotalRow, { borderTopColor: colors.border }]}>
-            <Text style={[styles.grandTotalLabel, { color: colors.text }]}>Total</Text>
+            <Text style={[styles.grandTotalLabel, { color: colors.text }]}>Final Amount</Text>
             <Text style={[styles.grandTotalValue, { color: colors.primary }]}>
               {formatCurrency(totals.grandTotal)}
+            </Text>
+          </View>
+          <View style={[styles.amountInWords, { backgroundColor: colors.primaryLight }]}>
+            <Text style={[styles.amountInWordsText, { color: colors.primary }]}>
+              {numberToWords(totals.grandTotal)}
             </Text>
           </View>
         </View>
@@ -985,7 +1032,76 @@ const styles = StyleSheet.create({
   },
   customerToggleTitle: {
     fontSize: 18,
+  },
+  extractionInfoBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderLeftWidth: 4,
+    padding: 16,
+    marginHorizontal: 20,
+    marginBottom: 12,
+    borderRadius: 8,
+  },
+  extractionInfoText: {
+    flex: 1,
+    fontSize: 14,
     fontWeight: '600',
+  },
+  warningBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderLeftWidth: 4,
+    padding: 16,
+    marginHorizontal: 20,
+    marginBottom: 16,
+    borderRadius: 8,
+  },
+  warningText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#92400e',
+    fontWeight: '600',
+  },
+  fieldLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  extractedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#f0fdf4',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#16a34a',
+  },
+  extractedBadgeText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#16a34a',
+  },
+  amountInWords: {
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 8,
+  },
+  amountInWordsText: {
+    fontSize: 14,
+    fontWeight: '600',
+    fontStyle: 'italic',
+    textAlign: 'center',
   },
   toggleText: {
     fontSize: 16,
